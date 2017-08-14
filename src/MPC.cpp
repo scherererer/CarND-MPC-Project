@@ -50,7 +50,7 @@ public:
 MPC::MPC() {}
 MPC::~MPC() {}
 
-vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
+MPC::Solution MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
 	bool ok = true;
 	size_t i;
 	typedef CPPAD_TESTVECTOR(double) Dvector;
@@ -126,5 +126,12 @@ vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
 	//
 	// {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
 	// creates a 2 element double vector.
-	return {};
+	//return {};
+
+	Solution s;
+
+	s.steer_value = 0; // solution.x[0]
+	s.throttle_value = 0; // solution.x[1]
+
+	return s;
 }
