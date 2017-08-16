@@ -9,6 +9,9 @@
 #include "MPC.h"
 #include "json.hpp"
 
+using namespace std;
+
+
 // for convenience
 using json = nlohmann::json;
 
@@ -17,6 +20,8 @@ constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
 
+namespace
+{
 inline double angleWrap(double a_) {
 	a_ = fmod(a_, 2.0 * M_PI);
 	if (a_ < 0)
@@ -29,6 +34,18 @@ inline double angleDiff(double a, double b) {
     if (diff < 0)
         diff += 2 * M_PI;
     return diff - M_PI;
+}
+
+inline void mapToVehicle(double &mx, double &my, double const psi,
+                         double const vx, double const vy) {
+	double const cos_psi = cos(-psi);
+	double const sin_psi = sin(-psi);
+
+	double const dx = mx - vx;
+	double const dy = mx - vy;
+	// Convert ptsx/y to vehicle coordinates
+	mx = dx * cos_psi - dy * sin_psi;
+	my = dx * sin_psi + dy * cos_psi;
 }
 
 // Checks if the SocketIO event has JSON data.
@@ -78,6 +95,9 @@ Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals, int order)
 	return result;
 }
 
+}
+
+
 int main() {
 	uWS::Hub h;
 
@@ -116,9 +136,6 @@ int main() {
 
 					Eigen::VectorXd xvals(ptsx.size());
 					Eigen::VectorXd yvals(ptsy.size());
-
-					double const cos_psi = cos(psi);
-					double const sin_psi = sin(psi);
 
 					for (size_t i = 0; i < ptsx.size(); ++i) {
 						// Convert ptsx/y to vehicle coordinates
@@ -159,23 +176,43 @@ int main() {
 					msgJson["throttle"] = solution.throttle_value;
 
 					// Display the MPC predicted trajectory
-					vector<double> mpc_x_vals;
-					vector<double> mpc_y_vals;
+					vector<double> mpc_x_vals(solution.predicted_x.size());
+					vector<double> mpc_y_vals(solution.predicted_x.size());
 
 					// \todo add (x,y) points to list here, points are in reference to the
 					// vehicle's coordinate system the points in the simulator are connected by
 					// a Green line
 
+					double const cos_psi = cos(-psi);
+					double const sin_psi = sin(-psi);
+
+					for (size_t i = 0; i < solution.predicted_x.size(); ++i) {
+						double const dx = solution.predicted_x[i] - px;
+						double const dy = solution.predicted_y[i] - py;
+						// Convert ptsx/y to vehicle coordinates
+						mpc_x_vals[i] = dx * cos_psi - dy * sin_psi;
+						mpc_y_vals[i] = dx * sin_psi + dy * cos_psi;
+					}
+
+
 					msgJson["mpc_x"] = mpc_x_vals;
 					msgJson["mpc_y"] = mpc_y_vals;
 
 					// Display the waypoints/reference line
-					vector<double> next_x_vals;
-					vector<double> next_y_vals;
+					vector<double> next_x_vals(ptsx.size());
+					vector<double> next_y_vals(ptsx.size());
 
 					// \todo add (x,y) points to list here, points are in reference to the
 					// vehicle's coordinate system the points in the simulator are connected by
 					// a Yellow line
+
+					for (size_t i = 0; i < ptsx.size(); ++i) {
+						double const dx = ptsx[i] - px;
+						double const dy = ptsy[i] - py;
+						// Convert ptsx/y to vehicle coordinates
+						next_x_vals[i] = dx * cos_psi - dy * sin_psi;
+						next_y_vals[i] = dx * sin_psi + dy * cos_psi;
+					}
 
 					msgJson["next_x"] = next_x_vals;
 					msgJson["next_y"] = next_y_vals;

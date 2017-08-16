@@ -6,6 +6,8 @@ using CppAD::AD;
 
 #include "Eigen-3.3/Eigen/Core"
 
+using namespace std;
+
 
 namespace
 {
@@ -253,6 +255,11 @@ MPC::Solution MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
 	// Steering solution is reversed to match steering angle
 	s.steer_value = -solution.x[delta_start];
 	s.throttle_value = solution.x[a_start];
+
+	for (size_t i = x_start; i < x_end; ++i)
+		s.predicted_x.push_back (solution.x[i]);
+	for (size_t i = y_start; i < y_end; ++i)
+		s.predicted_y.push_back (solution.x[i]);
 
 	return s;
 }

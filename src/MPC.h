@@ -4,8 +4,6 @@
 
 #include <vector>
 
-using namespace std;
-
 class MPC
 {
 public:
@@ -13,6 +11,9 @@ public:
 	{
 		double steer_value;
 		double throttle_value;
+
+		std::vector<double> predicted_x;
+		std::vector<double> predicted_y;
 	};
 
 	MPC();
