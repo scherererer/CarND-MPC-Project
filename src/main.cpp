@@ -20,6 +20,8 @@ constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
 
+double constexpr mph2mps(double x) { return x * 0.44704; }
+
 namespace
 {
 inline double angleWrap(double a_) {
@@ -30,7 +32,7 @@ inline double angleWrap(double a_) {
 }
 
 inline double angleDiff(double a, double b) {
-    double diff = fmod(b - a + M_PI, 2 * M_PI);
+    double diff = fmod(angleWrap(b) - angleWrap(a) + M_PI, 2 * M_PI);
     if (diff < 0)
         diff += 2 * M_PI;
     return diff - M_PI;
@@ -110,7 +112,7 @@ int main() {
 		// The 4 signifies a websocket message
 		// The 2 signifies a websocket event
 		string sdata = string(data).substr(0, length);
-		cout << sdata << endl;
+		//cout << sdata << endl;
 		if (sdata.size() > 2 && sdata[0] == '4' && sdata[1] == '2') {
 			string s = hasData(sdata);
 			if (s != "") {
@@ -123,8 +125,8 @@ int main() {
 					double const px = j[1]["x"];
 					double const py = j[1]["y"];
 					double const psi = j[1]["psi"];
-					//double const psi_unity = j[1]["psi_unity"];
-					double const v = j[1]["speed"];
+					double const psi_unity = j[1]["psi_unity"];
+					double const v = mph2mps(j[1]["speed"]);
 
 					/*
 					* TODO: Calculate steering angle and throttle using MPC.
@@ -134,31 +136,45 @@ int main() {
 					*/
 					assert(ptsx.size() == ptsy.size());
 
+					double const cos_psi = cos(-psi);
+					double const sin_psi = sin(-psi);
+
+					vector<double> next_x_vals(ptsx.size());
+					vector<double> next_y_vals(ptsy.size());
+
 					Eigen::VectorXd xvals(ptsx.size());
 					Eigen::VectorXd yvals(ptsy.size());
 
 					for (size_t i = 0; i < ptsx.size(); ++i) {
+						double const dx = ptsx[i] - px;
+						double const dy = ptsy[i] - py;
 						// Convert ptsx/y to vehicle coordinates
-						//xvals[i] = ptsx[i] * cos_psi - ptsy[i] * sin_psi - px;
-						//yvals[i] = ptsx[i] * sin_psi + ptsy[i] * cos_psi - py;
+						next_x_vals[i] = dx * cos_psi - dy * sin_psi;
+						next_y_vals[i] = dx * sin_psi + dy * cos_psi;
 
-						xvals[i] = ptsx[i];
-						yvals[i] = ptsy[i];
+						xvals[i] = next_x_vals[i];
+						yvals[i] = next_y_vals[i];
 					}
 
 					Eigen::VectorXd const coeffs = polyfit(xvals, yvals, 3);
 
 					// The cross track error is calculated by evaluating at polynomial at x, f(x)
 					// and subtracting y.
-					double const cte = polyeval(coeffs, px) - py;
+					//double const cte = polyeval(coeffs, px) - py;
+					double const cte = polyeval(coeffs, 0);
 					// Due to the sign starting at 0, the orientation error is -f'(x).
-					// derivative of coeffs[0] + coeffs[1] * x + coeffs[2] * x^2 -> coeffs[1] + 2 * coeffs[2] * x;
-					/// \todo somebody needs to be translated here. almost seems like it's 180degrees out
-					double const epsi = angleDiff(psi, atan(coeffs[1] + 2 * coeffs[2] * px));
+					double const targetBearing =
+						atan(coeffs[1] + 2 * coeffs[2] * px + 3 * coeffs[3] * px * px);
+
+					//double const epsi = angleDiff(targetBearing, psi_unity);
+					//double const epsi = angleDiff(0, targetBearing);
+					double const epsi = -targetBearing;
 					// From linear model:
 					//double epsi = psi - atan(coeffs[1]);
 
-					cout << "cte: " << cte << " epsi: " << epsi << endl;
+					cout << "bearing: " << targetBearing
+					     << " heading: " << psi << " heading2: " << psi_unity
+					     << " cte: " << cte << " epsi: " << epsi << '\n';
 
 					Eigen::VectorXd state(6);
 
@@ -167,29 +183,24 @@ int main() {
 					MPC::Solution const solution = mpc.Solve(state, coeffs);
 
 					json msgJson;
-					// NOTE: Remember to divide by deg2rad(25) before you send the steering
-					// value back. Otherwise the values will be in between
-					// [-deg2rad(25), deg2rad(25] instead of [-1, 1].
-					//msgJson["steering_angle"] = solution.steer_value;
-					//msgJson["throttle"] = solution.throttle_value;
+
+					cout << "DESIRED steering: " << solution.steer_value
+					     << " throttle: " << solution.throttle_value << "\n";
+
 					msgJson["steering_angle"] = solution.steer_value;
 					msgJson["throttle"] = solution.throttle_value;
+					//msgJson["steering_angle"] = -cte;
+					//msgJson["throttle"] = 0.2;
 
 					// Display the MPC predicted trajectory
 					vector<double> mpc_x_vals(solution.predicted_x.size());
 					vector<double> mpc_y_vals(solution.predicted_x.size());
 
-					// \todo add (x,y) points to list here, points are in reference to the
-					// vehicle's coordinate system the points in the simulator are connected by
-					// a Green line
-
-					double const cos_psi = cos(-psi);
-					double const sin_psi = sin(-psi);
-
+					// points are in reference to the vehicle's coordinate system. The points
+					// in the simulator are connected by a green line
 					for (size_t i = 0; i < solution.predicted_x.size(); ++i) {
 						double const dx = solution.predicted_x[i] - px;
 						double const dy = solution.predicted_y[i] - py;
-						// Convert ptsx/y to vehicle coordinates
 						mpc_x_vals[i] = dx * cos_psi - dy * sin_psi;
 						mpc_y_vals[i] = dx * sin_psi + dy * cos_psi;
 					}
@@ -199,27 +210,12 @@ int main() {
 					msgJson["mpc_y"] = mpc_y_vals;
 
 					// Display the waypoints/reference line
-					vector<double> next_x_vals(ptsx.size());
-					vector<double> next_y_vals(ptsx.size());
-
-					// \todo add (x,y) points to list here, points are in reference to the
-					// vehicle's coordinate system the points in the simulator are connected by
-					// a Yellow line
-
-					for (size_t i = 0; i < ptsx.size(); ++i) {
-						double const dx = ptsx[i] - px;
-						double const dy = ptsy[i] - py;
-						// Convert ptsx/y to vehicle coordinates
-						next_x_vals[i] = dx * cos_psi - dy * sin_psi;
-						next_y_vals[i] = dx * sin_psi + dy * cos_psi;
-					}
-
 					msgJson["next_x"] = next_x_vals;
 					msgJson["next_y"] = next_y_vals;
 
 
 					auto msg = "42[\"steer\"," + msgJson.dump() + "]";
-					std::cout << msg << std::endl;
+					//std::cout << msg << std::endl;
 					// Latency
 					// The purpose is to mimic real driving conditions where
 					// the car does actuate the commands instantly.
@@ -227,9 +223,10 @@ int main() {
 					// Feel free to play around with this value but should be to drive
 					// around the track with 100ms latency.
 					//
-					// NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
+					// \note REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
 					// SUBMITTING.
-					this_thread::sleep_for(chrono::milliseconds(100));
+					//this_thread::sleep_for(chrono::milliseconds(100));
+					this_thread::sleep_for(chrono::milliseconds(1));
 					ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
 				}
 			}
