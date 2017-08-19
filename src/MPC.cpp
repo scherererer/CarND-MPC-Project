@@ -12,9 +12,14 @@ using namespace std;
 
 namespace
 {
+// This value of N seemed reasonable. I started with 20 but it seems to work just as well with
+// less so we might as well reduce the computational cost
 size_t constexpr N = 10;
-double constexpr dt = 0.15;  // Delta time in seconds
-double constexpr ref_v = 10; // Target velocity in m/s
+// Want dt to be approximately equal to the latency (100ms) because I'm sampling the second
+// time step's actuator values to handle the actuator latency. I tried setting it to exactly
+// 100ms but found through experimentation that 150 was smoother.
+double constexpr dt = 0.15;  ///< Delta time in seconds
+double constexpr ref_v = 10; ///< Target velocity in m/s
 
 // Start indices for each section of the unified state / actuator vector
 size_t constexpr x_start     = 0;           size_t constexpr x_end     = x_start + N;
@@ -46,19 +51,28 @@ public:
 
 		// The part of the cost based on the reference state.
 		for (size_t t = 0; t < N; ++t) {
+			// Minimize cross track error
 			fg[0] += CppAD::pow(vars[cte_start + t], 2);
+			// Minimize orientation error
 			fg[0] += CppAD::pow(vars[epsi_start + t], 2);
+			// Attempt to drive at a target speed
 			fg[0] += CppAD::pow(vars[v_start + t] - ref_v, 2);
 		}
 
 		// Minimize the use of actuators.
 		for (size_t t = 0; t < N - 1; ++t) {
+			// Prefer centered actuators
 			fg[0] += CppAD::pow(vars[delta_start + t], 2);
+			// This one, intuitively, seems a bit weird because it should be increasing cost
+			// the more you throttle up. It's strange because the steady state throttle should
+			// be non-zero, and it's not clear why that should incur a cost. Removing this,
+			// however, seemed to cause the vehicle to oscillate more, so I've left it in.
 			fg[0] += CppAD::pow(vars[a_start + t], 2);
 		}
 
 		// Minimize the change in actuation
 		for (size_t t = 0; t < N - 2; ++t) {
+			// Minimize the change in delta and acceleration
 			fg[0] += CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2);
 			fg[0] += CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
 		}
@@ -96,9 +110,6 @@ public:
 			AD<double> x0_2 = x0 * x0;
 			AD<double> x0_3 = x0_2 * x0;
 
-			/// \todo It feels like maybe the coefficients passed into here MUST be in world
-			/// space, since we're moving through the world in time. Otherwise all the
-			/// calculations need to be relative to the initial state of the vehicle...
 			AD<double> f0 = (coeffs[0])
 				+ (coeffs[1] * x0)
 				+ (coeffs[2] * x0_2)
