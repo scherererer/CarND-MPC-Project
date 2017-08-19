@@ -33,8 +33,8 @@ double constexpr STEER_LIMIT = STEER_MAX;
 // This is the length from front to CoG that has a similar radius.
 double constexpr Lf = 2.67;
 
-// Target velocity
-double constexpr ref_v = 2;
+// Target velocity in m/s
+double constexpr ref_v = 5;
 
 // Start indices for each section of the unified state / actuator vector
 size_t constexpr x_start     = 0;           size_t constexpr x_end     = x_start + N;
@@ -66,8 +66,8 @@ public:
 
 		// The part of the cost based on the reference state.
 		for (size_t t = 0; t < N; ++t) {
-			fg[0] += 0.1 * CppAD::pow(vars[cte_start + t], 2);
-			//fg[0] += CppAD::pow(vars[epsi_start + t], 2);
+			fg[0] += 0.5 * CppAD::pow(vars[cte_start + t], 2);
+			fg[0] += 0.5 * CppAD::pow(vars[epsi_start + t], 2);
 			fg[0] += CppAD::pow(vars[v_start + t] - ref_v, 2);
 		}
 
@@ -118,13 +118,17 @@ public:
 			AD<double> x0_2 = x0 * x0;
 			AD<double> x0_3 = x0_2 * x0;
 
-			//AD<double> f0 = coeffs[0] + coeffs[1] * x0;
-			//AD<double> psides0 = CppAD::atan(coeffs[1]);
+			/// \todo It feels like maybe the coefficients passed into here MUST be in world
+			/// space, since we're moving through the world in time. Otherwise all the
+			/// calculations need to be relative to the initial state of the vehicle...
 			AD<double> f0 = (coeffs[0])
 				+ (coeffs[1] * x0)
 				+ (coeffs[2] * x0_2)
 				+ (coeffs[3] * x0_3);
-			AD<double> psides0 = CppAD::atan(coeffs[1] + 2 * coeffs[2] * x0 + 3 * coeffs[3] * x0_2);
+			AD<double> psides0 =
+				CppAD::atan(coeffs[1]
+				            + 2 * coeffs[2] * x0
+				            + 3 * coeffs[3] * x0_2);
 
 			// Model Equations:
 			// x_[t+1] = x[t] + v[t] * cos(psi[t]) * dt
@@ -138,10 +142,8 @@ public:
 			fg[1 + psi_start + t] = psi1 - (psi0 + v0 * delta0 / Lf * dt);
 			fg[1 + v_start + t] = v1 - (v0 + a0 * dt);
 
-			//fg[1 + cte_start + t] = cte1 - ((f0) + (v0 * CppAD::sin(epsi0) * dt));
 			fg[1 + cte_start + t] = cte1 - ((f0 - y0) + (v0 * CppAD::sin(epsi0) * dt));
-			fg[1 + epsi_start + t] = epsi1 - ((-psides0) + v0 * delta0 / Lf * dt);
-			//fg[1 + epsi_start + t] = epsi1 - ((psi0 - psides0) + v0 * delta0 / Lf * dt);
+			fg[1 + epsi_start + t] = epsi1 - ((psi0 - psides0) + v0 * delta0 / Lf * dt);
 		}
 	}
 };
@@ -288,8 +290,8 @@ MPC::Solution MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
 	// Remember to divide by deg2rad(25) before you send the steering
 	// value back. Otherwise the values will be in between
 	// [-deg2rad(25), deg2rad(25] instead of [-1, 1].
-	s.steer_value = -solution.x[delta_start + 1] / STEER_MAX;
-	s.throttle_value = solution.x[a_start + 1];
+	s.steer_value = -solution.x[delta_start] / STEER_MAX;
+	s.throttle_value = solution.x[a_start];
 
 	for (size_t i = x_start; i < x_end; ++i)
 		s.predicted_x.push_back (solution.x[i]);

@@ -24,32 +24,6 @@ double constexpr mph2mps(double x) { return x * 0.44704; }
 
 namespace
 {
-inline double angleWrap(double a_) {
-	a_ = fmod(a_, 2.0 * M_PI);
-	if (a_ < 0)
-		a_ += 2.0 * M_PI;
-	return a_;
-}
-
-inline double angleDiff(double a, double b) {
-    double diff = fmod(angleWrap(b) - angleWrap(a) + M_PI, 2 * M_PI);
-    if (diff < 0)
-        diff += 2 * M_PI;
-    return diff - M_PI;
-}
-
-inline void mapToVehicle(double &mx, double &my, double const psi,
-                         double const vx, double const vy) {
-	double const cos_psi = cos(-psi);
-	double const sin_psi = sin(-psi);
-
-	double const dx = mx - vx;
-	double const dy = mx - vy;
-	// Convert ptsx/y to vehicle coordinates
-	mx = dx * cos_psi - dy * sin_psi;
-	my = dx * sin_psi + dy * cos_psi;
-}
-
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
 // else the empty string "" will be returned.
@@ -128,12 +102,6 @@ int main() {
 					double const psi_unity = j[1]["psi_unity"];
 					double const v = mph2mps(j[1]["speed"]);
 
-					/*
-					* TODO: Calculate steering angle and throttle using MPC.
-					*
-					* Both are in between [-1, 1].
-					*
-					*/
 					assert(ptsx.size() == ptsy.size());
 
 					double const cos_psi = cos(-psi);
@@ -156,21 +124,15 @@ int main() {
 						yvals[i] = next_y_vals[i];
 					}
 
-					Eigen::VectorXd const coeffs = polyfit(xvals, yvals, 3);
+					Eigen::VectorXd const coeffsVehicle = polyfit(xvals, yvals, 3);
 
-					// The cross track error is calculated by evaluating at polynomial at x, f(x)
-					// and subtracting y.
-					//double const cte = polyeval(coeffs, px) - py;
-					double const cte = polyeval(coeffs, 0);
+					// The cross track error is calculated by evaluating at polynomial at
+					// x, f(x) and subtracting y.
+					double const cte = polyeval(coeffsVehicle, 0);
 					// Due to the sign starting at 0, the orientation error is -f'(x).
 					double const targetBearing =
-						atan(coeffs[1] + 2 * coeffs[2] * px + 3 * coeffs[3] * px * px);
-
-					//double const epsi = angleDiff(targetBearing, psi_unity);
-					//double const epsi = angleDiff(0, targetBearing);
+						atan(coeffsVehicle[1] + 2 * coeffsVehicle[2] * px + 3 * coeffsVehicle[3] * px * px);
 					double const epsi = -targetBearing;
-					// From linear model:
-					//double epsi = psi - atan(coeffs[1]);
 
 					cout << "bearing: " << targetBearing
 					     << " heading: " << psi << " heading2: " << psi_unity
@@ -178,9 +140,10 @@ int main() {
 
 					Eigen::VectorXd state(6);
 
-					state << px, py, psi, v, cte, epsi;
+					//state << px, py, psi, v, cte, epsi;
+					state << 0, 0, 0, v, cte, epsi;
 
-					MPC::Solution const solution = mpc.Solve(state, coeffs);
+					MPC::Solution const solution = mpc.Solve(state, coeffsVehicle);
 
 					json msgJson;
 
@@ -189,25 +152,10 @@ int main() {
 
 					msgJson["steering_angle"] = solution.steer_value;
 					msgJson["throttle"] = solution.throttle_value;
-					//msgJson["steering_angle"] = -cte;
-					//msgJson["throttle"] = 0.2;
 
 					// Display the MPC predicted trajectory
-					vector<double> mpc_x_vals(solution.predicted_x.size());
-					vector<double> mpc_y_vals(solution.predicted_x.size());
-
-					// points are in reference to the vehicle's coordinate system. The points
-					// in the simulator are connected by a green line
-					for (size_t i = 0; i < solution.predicted_x.size(); ++i) {
-						double const dx = solution.predicted_x[i] - px;
-						double const dy = solution.predicted_y[i] - py;
-						mpc_x_vals[i] = dx * cos_psi - dy * sin_psi;
-						mpc_y_vals[i] = dx * sin_psi + dy * cos_psi;
-					}
-
-
-					msgJson["mpc_x"] = mpc_x_vals;
-					msgJson["mpc_y"] = mpc_y_vals;
+					msgJson["mpc_x"] = solution.predicted_x;
+					msgJson["mpc_y"] = solution.predicted_y;
 
 					// Display the waypoints/reference line
 					msgJson["next_x"] = next_x_vals;
