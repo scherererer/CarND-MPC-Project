@@ -1,5 +1,7 @@
 #pragma once
 
+#include <math.h>
+
 int constexpr LATENCY_MS = 100; ///< Latency in milliseconds
 double constexpr LATENCY = LATENCY_MS / 1000.0; ///< Latency in seconds
 
