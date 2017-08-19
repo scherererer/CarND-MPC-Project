@@ -43,9 +43,6 @@ public:
 	/// \param fg A vector of the cost constraints
 	/// \param vars A vector of variable values (state & actuators)
 	void operator()(ADvector& fg, const ADvector& vars) {
-		// NOTE: You'll probably go back and forth between this function and
-		// the Solver function below.
-
 		// fg[0] stores cost
 		fg[0] = 0;
 
