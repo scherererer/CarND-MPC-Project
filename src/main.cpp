@@ -1,13 +1,18 @@
-#include <math.h>
+#include "MPC.h"
+#include "constants.h"
+
 #include <uWS/uWS.h>
+
+#include "json.hpp"
+
+#include "Eigen-3.3/Eigen/Core"
+#include "Eigen-3.3/Eigen/QR"
+
+#include <math.h>
 #include <chrono>
 #include <iostream>
 #include <thread>
 #include <vector>
-#include "Eigen-3.3/Eigen/Core"
-#include "Eigen-3.3/Eigen/QR"
-#include "MPC.h"
-#include "json.hpp"
 
 using namespace std;
 
@@ -20,10 +25,11 @@ constexpr double pi() { return M_PI; }
 double deg2rad(double x) { return x * pi() / 180; }
 double rad2deg(double x) { return x * 180 / pi(); }
 
-double constexpr mph2mps(double x) { return x * 0.44704; }
-
 namespace
 {
+
+double constexpr mph2mps(double x) { return x * 0.44704; }
+
 // Checks if the SocketIO event has JSON data.
 // If there is data the JSON object in string format will be returned,
 // else the empty string "" will be returned.
@@ -86,7 +92,7 @@ int main() {
 		// The 4 signifies a websocket message
 		// The 2 signifies a websocket event
 		string sdata = string(data).substr(0, length);
-		//cout << sdata << endl;
+		cout << sdata << endl;
 		if (sdata.size() > 2 && sdata[0] == '4' && sdata[1] == '2') {
 			string s = hasData(sdata);
 			if (s != "") {
@@ -96,10 +102,10 @@ int main() {
 					// j[1] is the data JSON object
 					vector<double> const ptsx = j[1]["ptsx"];
 					vector<double> const ptsy = j[1]["ptsy"];
+
 					double const px = j[1]["x"];
 					double const py = j[1]["y"];
 					double const psi = j[1]["psi"];
-					double const psi_unity = j[1]["psi_unity"];
 					double const v = mph2mps(j[1]["speed"]);
 
 					assert(ptsx.size() == ptsy.size());
@@ -114,9 +120,10 @@ int main() {
 					Eigen::VectorXd yvals(ptsy.size());
 
 					for (size_t i = 0; i < ptsx.size(); ++i) {
+						// Convert ptsx/y to vehicle coordinates
 						double const dx = ptsx[i] - px;
 						double const dy = ptsy[i] - py;
-						// Convert ptsx/y to vehicle coordinates
+
 						next_x_vals[i] = dx * cos_psi - dy * sin_psi;
 						next_y_vals[i] = dx * sin_psi + dy * cos_psi;
 
@@ -131,24 +138,18 @@ int main() {
 					double const cte = polyeval(coeffsVehicle, 0);
 					// Due to the sign starting at 0, the orientation error is -f'(x).
 					double const targetBearing =
-						atan(coeffsVehicle[1] + 2 * coeffsVehicle[2] * px + 3 * coeffsVehicle[3] * px * px);
+						atan(coeffsVehicle[1]
+						     + 2 * coeffsVehicle[2] * px
+						     + 3 * coeffsVehicle[3] * px * px);
 					double const epsi = -targetBearing;
-
-					cout << "bearing: " << targetBearing
-					     << " heading: " << psi << " heading2: " << psi_unity
-					     << " cte: " << cte << " epsi: " << epsi << '\n';
 
 					Eigen::VectorXd state(6);
 
-					//state << px, py, psi, v, cte, epsi;
 					state << 0, 0, 0, v, cte, epsi;
 
 					MPC::Solution const solution = mpc.Solve(state, coeffsVehicle);
 
 					json msgJson;
-
-					cout << "DESIRED steering: " << solution.steer_value
-					     << " throttle: " << solution.throttle_value << "\n";
 
 					msgJson["steering_angle"] = solution.steer_value;
 					msgJson["throttle"] = solution.throttle_value;
@@ -163,7 +164,7 @@ int main() {
 
 
 					auto msg = "42[\"steer\"," + msgJson.dump() + "]";
-					//std::cout << msg << std::endl;
+					std::cout << msg << std::endl;
 					// Latency
 					// The purpose is to mimic real driving conditions where
 					// the car does actuate the commands instantly.
@@ -173,8 +174,7 @@ int main() {
 					//
 					// \note REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
 					// SUBMITTING.
-					//this_thread::sleep_for(chrono::milliseconds(100));
-					this_thread::sleep_for(chrono::milliseconds(1));
+					this_thread::sleep_for(chrono::milliseconds(LATENCY_MS));
 					ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
 				}
 			}

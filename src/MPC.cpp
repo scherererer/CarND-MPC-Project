@@ -1,4 +1,5 @@
 #include "MPC.h"
+#include "constants.h"
 
 #include <cppad/cppad.hpp>
 #include <cppad/ipopt/solve.hpp>
@@ -11,30 +12,9 @@ using namespace std;
 
 namespace
 {
-// \todo Tune the timestep length and duration
-size_t constexpr N = 20;
-double constexpr dt = 0.1;
-
-/// \brief Maximum steering angle
-double constexpr STEER_MAX = 25.0 * M_PI / 180.0;
-/// \brief Limit of steering angle
-/// \todo Tune this
-double constexpr STEER_LIMIT = STEER_MAX;
-
-// This value assumes the model presented in the classroom is used.
-//
-// It was obtained by measuring the radius formed by running the vehicle in the
-// simulator around in a circle with a constant steering angle and velocity on a
-// flat terrain.
-//
-// Lf was tuned until the the radius formed by the simulating the model
-// presented in the classroom matched the previous radius.
-//
-// This is the length from front to CoG that has a similar radius.
-double constexpr Lf = 2.67;
-
-// Target velocity in m/s
-double constexpr ref_v = 5;
+size_t constexpr N = 10;
+double constexpr dt = 0.15;  // Delta time in seconds
+double constexpr ref_v = 10; // Target velocity in m/s
 
 // Start indices for each section of the unified state / actuator vector
 size_t constexpr x_start     = 0;           size_t constexpr x_end     = x_start + N;
@@ -66,16 +46,14 @@ public:
 
 		// The part of the cost based on the reference state.
 		for (size_t t = 0; t < N; ++t) {
-			fg[0] += 0.5 * CppAD::pow(vars[cte_start + t], 2);
-			fg[0] += 0.5 * CppAD::pow(vars[epsi_start + t], 2);
+			fg[0] += CppAD::pow(vars[cte_start + t], 2);
+			fg[0] += CppAD::pow(vars[epsi_start + t], 2);
 			fg[0] += CppAD::pow(vars[v_start + t] - ref_v, 2);
 		}
 
 		// Minimize the use of actuators.
 		for (size_t t = 0; t < N - 1; ++t) {
 			fg[0] += CppAD::pow(vars[delta_start + t], 2);
-			/// \note This feels weird, throttle should be a set point that eventually gets
-			/// fixed based on desired speed.
 			fg[0] += CppAD::pow(vars[a_start + t], 2);
 		}
 
@@ -287,11 +265,10 @@ MPC::Solution MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
 	// Steering solution is reversed to match steering angle, and normalized by the max angle
 	// to match command format
 	//
-	// Remember to divide by deg2rad(25) before you send the steering
-	// value back. Otherwise the values will be in between
-	// [-deg2rad(25), deg2rad(25] instead of [-1, 1].
-	s.steer_value = -solution.x[delta_start] / STEER_MAX;
-	s.throttle_value = solution.x[a_start];
+	// For both steering and throttle, skip ahead to the second command to handle latency of
+	// actuator. Latency ~= dt so we can get away with this.
+	s.steer_value = -solution.x[delta_start + 1] / STEER_MAX;
+	s.throttle_value = solution.x[a_start + 1];
 
 	for (size_t i = x_start; i < x_end; ++i)
 		s.predicted_x.push_back (solution.x[i]);
